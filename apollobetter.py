@@ -2,11 +2,17 @@ from apolloapi import ApolloApi, TorrentCache
 import argparse
 import configparser
 from pathlib import Path
+import tempfile
+import shutil
 import re
 import subprocess
 
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
+
+DESCRIPTION = ("Transcode of [url=https://apollo.rip/torrents.php?torrentid={tid}]https://apollo.rip/torrents.php?torrentid={tid}[/url]\n"
+               "\n"
+               "This transcoding was done by an autonomous system.")
 
 def get_transcode_dir(flac_dir, output_format):
     output_format = output_format.upper()
@@ -74,6 +80,10 @@ def main():
     else:
         print("Found {} potential candidates.".format(len(candidates)))
 
+    print()
+
+    tmp = tempfile.TemporaryDirectory()
+
     nuploaded = 0
     limit = args.limit
     for c in candidates:
@@ -92,7 +102,7 @@ def main():
             transcode_dir = get_transcode_dir(torrent["filePath"], output_format)
             path = args.search_dir / transcode_dir
             if not path.exists():
-                print("\tFiles for \"{}\" not found. Continuing with next Candidate...".format(output_format))
+                #print("\tFiles for \"{}\" not found. Continuing with next Candidate...".format(output_format))
                 continue
             print("\tFound {}.".format(path))
             
@@ -108,15 +118,30 @@ def main():
             """
 
             print("\t\tCreating torrent file...")
-            tfile = args.torrent_dir / (transcode_dir + ".torrent")
+            #tfile = args.torrent_dir / (transcode_dir + ".torrent")
+            tfile = Path(tmp.name) / (transcode_dir + ".torrent")
             create_torrent_file(tfile, path, ANNOUNCE_URL, api.passkey, 18)
 
             print("\t\tUploading torrent...")
-            r = api.add_format(torrent_response["response"], output_format, tfile)
-            if r:
-                print("Done.")
-            else:
+            r = api.add_format(torrent_response["response"], output_format, tfile, DESCRIPTION.format(tid=torrent["id"]))
+            if not r:
                 print("Error on upload. Aborting everything!")
+                # TODO exit
+
+            print("\t\tMoving files...")
+            tfile_new = args.torrent_dir / tfile.name
+            path_new = args.output_dir / path.name
+            if tfile_new.exists() or path_new.exists():
+                if tfile_new.exists():
+                    print("\t\tError, {} allready exists.".format(tfile_new))
+                if path_new.exists():
+                    print("\t\tError, {} allready exists.".format(path_new))
+                # TODO exit
+            else:
+                path.rename(path_new)
+                shutil.copyfile(tfile, tfile_new)
+
+            print("\t\tDone.")
 
             nuploaded += 1
 
