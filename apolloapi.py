@@ -118,6 +118,13 @@ class ApolloApi:
     def get_torrent(self, tid):
         return self._api_request("torrent", id=tid)
 
+    def get_group(self, gid):
+        r = self._api_request("torrentgroup", id=gid)
+        if r is not None and r.get("status", "") == "success":
+            return r["response"]
+        else:
+            return None
+
     def get_index(self):
         r = self._api_request("index")
         if r is not None and r.get("status", "") == "success":

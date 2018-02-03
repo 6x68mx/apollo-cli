@@ -42,6 +42,7 @@ def main():
     parser.add_argument("--torrent-dir", help="Where to put the new *.torrent files", type=Path, required=True)
     #parser.add_argument("--torrent-search-dir", help="Where to search for torrent files", type=Path, required=True)
     parser.add_argument("-l", "--limit", type=int, help="Maximum number of torrents to upload", default=0)
+    parser.add_argument("-u", "--unique-groups", action="store_true", help="Upload only into groups you do not yet have a single torrent in.")
     parser.add_argument("-v2", "--format-v2", action="store_true")
     parser.add_argument("-v0", "--format-v0", action="store_true")
     parser.add_argument("-320", "--format-320", action="store_true")
@@ -103,8 +104,14 @@ def main():
             path = args.search_dir / transcode_dir
             if not path.exists():
                 #print("\tFiles for \"{}\" not found. Continuing with next Candidate...".format(output_format))
-                continue
+                continue # skip this release
             print("\tFound {}.".format(path))
+
+            if args.unique_groups:
+                group = api.get_group(torrent_response["response"]["group"]["id"])
+                if any(t["username"] == api.username for t in group["torrents"]):
+                    print("You already own a torrent in this group, skipping... (--unique-groups)")
+                    break # skip all formats of this release
             
             # TODO check integrity i.e. if file list in from torrent matches the actuall files on disk
 
