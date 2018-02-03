@@ -1,4 +1,3 @@
-import mechanicalsoup
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -32,11 +31,6 @@ FORMATS = {
 
 class ApolloApi:
     def __init__(self, username=None, password=None):
-        self.browser = mechanicalsoup.StatefulBrowser(
-                soup_config={"features": "lxml"},
-                raise_on_404=True,
-                user_agent=USER_AGENT
-        )
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
         self.authenticated = False
