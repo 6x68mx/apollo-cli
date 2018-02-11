@@ -1,0 +1,8 @@
+# python
+__pycache__
+venv
+*.pyc
+
+#vim
+*.swp
+tags
