@@ -7,6 +7,7 @@ import shutil
 import re
 import subprocess
 import errno
+import util
 
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
@@ -15,30 +16,12 @@ DESCRIPTION = ("Transcode of [url=https://apollo.rip/torrents.php?torrentid={tid
                "\n"
                "This transcoding was done by an autonomous system.")
 
-def get_transcode_dir(flac_dir, output_format):
-    output_format = output_format.upper()
-    if 'FLAC' in flac_dir.upper():
-        transcode_dir = re.sub(re.compile('FLAC', re.I), output_format, flac_dir)
-    else:
-        transcode_dir = flac_dir + " (" + output_format + ")"
-        if output_format != 'FLAC':
-            transcode_dir = re.sub(re.compile('FLAC', re.I), '', transcode_dir)
-    return transcode_dir
-
-def create_torrent_file(torrent_path, data_path, tracker, passkey, piece_length):
-    if torrent_path.exists() or not data_path.exists():
-        return False
-    
-    url = tracker.format(passkey)
-    command = ["mktorrent", "-p", "-l", str(piece_length), "-a", url, "-s", "APL", "-o", torrent_path, data_path]
-    subprocess.check_output(command, stderr=subprocess.STDOUT)
-
 def main():
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--search-dir", help="Where to search for potential uploads", type=Path, required=True)
+    parser.add_argument("--search-dir", help="Where to search for potential uploads", type=Path, required=True, action="append")
     parser.add_argument("-o", "--output-dir", help="Destination for converted data", type=Path, required=True)
     parser.add_argument("--torrent-dir", help="Where to put the new *.torrent files", type=Path, required=True)
     parser.add_argument("-l", "--limit", type=int, help="Maximum number of torrents to upload", default=0)
@@ -100,21 +83,18 @@ def main():
             needed = formats.intersection(c["formats_needed"])
             for output_format in needed:
 
-                # find the torrent data
-                transcode_dir = get_transcode_dir(torrent["filePath"], output_format)
-                path = args.search_dir / transcode_dir
-                try:
-                    if not path.exists():
-                        continue # skip this format
-                except OSError as e:
-                    # Under certain conditions the generated filename could be
-                    # too long for the filesystem. In this case we know that
-                    # this path couldn't exist anyway an can can skip the
-                    # format.
-                    if e.errno == errno.ENAMETOOLONG:
-                        continue
-                    else:
-                        raise
+                # find allready encoded data directory
+                """
+                transcode_dir = util.get_transcode_dir(torrent["filePath"], output_format)
+                path = util.find_dir(transcode_dir, args.search_dir)
+                if path is None:
+                    continue
+                print("\tFound {}.".format(path))
+                """
+
+                path = util.find_dir(torrent["filePath"], args.search_dir)
+                if path is None:
+                    continue
                 print("\tFound {}.".format(path))
 
                 if args.unique_groups:
@@ -124,10 +104,14 @@ def main():
                         break # skip all formats of this release
                 
                 # TODO check integrity i.e. if file list in from torrent matches the actuall files on disk
+                if not util.check_dir(path, util.parse_file_list(torrent["fileList"])):
+                    print("\tDirectory doesn't match the torrents file list. Skipping...")
+                    continue
+                print("\tdir check OK")
 
                 print("\t\tCreating torrent file...")
                 tfile = Path(tmp.name) / (transcode_dir + ".torrent")
-                create_torrent_file(tfile, path, ANNOUNCE_URL, api.passkey, 18)
+                util.create_torrent_file(tfile, path, ANNOUNCE_URL, api.passkey, "APL")
 
                 print("\t\tUploading torrent...")
                 r = api.add_format(torrent_response["response"], output_format, tfile, DESCRIPTION.format(tid=torrent["id"]))
