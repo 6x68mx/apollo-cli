@@ -1,3 +1,5 @@
+import formats
+
 import requests
 from bs4 import BeautifulSoup
 import re
@@ -6,36 +8,20 @@ import json
 
 SITE_URL = "https://apollo.rip"
 
+# No idea if we really need to spoof our user agent for apollo.rip
+# but xanaxbetter does it so at least for now we use the same useragent
 USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_3)"
               "AppleWebKit/535.11 (KHTML, like Gecko) Chrome/17.0.963.79"
               "Safari/535.11")
 
-FORMATS = {
-    "flac": {
-        "format": "FLAC",
-        "bitrate": "Lossless"
-    },
-    "320": {
-        "format": "MP3",
-        "bitrate": "320"
-    },
-    "v0": {
-        "format": "MP3",
-        "bitrate": "V0 (VBR)"
-    },
-    "v2": {
-        "format": "MP3",
-        "bitrate": "V2 (VBR)"
-    }
-}
-
 class ApolloApi:
-    def __init__(self, username=None, password=None):
+    def __init__(self, cache_path=None):
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
         self.authenticated = False
-        self.rate_limit = 2
+        self.rate_limit = 2 # minimum time between two requests in seconds
         self.last_request = time.time()
+        self.cache = TorrentCache(self, cache_path)
 
     def login(self, username, password):
         r = self.session.post(SITE_URL + "/login.php",
@@ -64,9 +50,11 @@ class ApolloApi:
         params.update(kwargs)
         r = self.session.get(SITE_URL + "/ajax.php", params=params)
         if r.status_code == 200:
-            return r.json()
-        else:
-            return None
+            r = r.json()
+            if r.get("status", "") == "success":
+                return r["response"]
+            
+        return None
 
     def get_better_snatched(self):
         if not self.authenticated:
@@ -102,38 +90,33 @@ class ApolloApi:
             needed = []
             v2 = entry.td.find_next_sibling("td")
             if v2.string == "NO":
-                needed.append("v2")
+                needed.append(formats.FormatV2)
             v0 = v2.find_next_sibling("td")
             if v0.string == "NO":
-                needed.append("v0")
+                needed.append(formats.FormatV0)
             f320 = v0.find_next_sibling("td")
             if f320.string == "NO":
-                needed.append("320")
+                needed.append(formats.Format320)
             t["formats_needed"] = needed
 
             torrents.append(t)
 
         return torrents
 
-    def get_torrent(self, tid):
-        return self._api_request("torrent", id=tid)
+    def get_torrent(self, tid, caching=True):
+        if caching:
+            return self.cache.get(tid)
+        else:
+            return self._api_request("torrent", id=tid)
 
     def get_group(self, gid):
-        r = self._api_request("torrentgroup", id=gid)
-        if r is not None and r.get("status", "") == "success":
-            return r["response"]
-        else:
-            return None
+        return self._api_request("torrentgroup", id=gid)
 
     def get_index(self):
-        r = self._api_request("index")
-        if r is not None and r.get("status", "") == "success":
-            return r["response"]
-        else:
-            return None
+        return self._api_request("index")
     
     def add_format(self, torrent, format, tfile, description=""):
-        if format not in FORMATS:
+        if format not in formats.FORMATS:
             return False # TODO indicate "not a valid format" error
 
         gid = torrent["group"]["id"]
@@ -144,8 +127,8 @@ class ApolloApi:
             "auth": self.authkey,
             "groupid": str(gid),
             "type": 0,
-            "format": FORMATS[format]["format"],
-            "bitrate": FORMATS[format]["bitrate"],
+            "format": format.FORMAT,
+            "bitrate": format.BITRATE,
             "media": torrent["media"],
             "release_desc": description
         }
@@ -192,13 +175,11 @@ class TorrentCache:
         with open(path, "w") as f:
             json.dump(self.torrents, f)
 
-    def get(self, tid, caching=True):
+    def get(self, tid):
         if tid in self.torrents:
             return self.torrents[tid]
         else:
-            t = self.api.get_torrent(tid)
-            if t and "status" in t and t["status"] == "success":
+            t = self.api.get_torrent(tid, caching=False)
+            if t:
                 self.torrents.update({tid: t})
-                return t
-            else:
-                return None
+            return t
