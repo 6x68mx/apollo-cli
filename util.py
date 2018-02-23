@@ -1,25 +1,6 @@
 from pathlib import Path
 import subprocess
 
-def get_transcode_dir(flac_dir, output_format):
-    """
-    Generate the name of the output directory for the given flac directory and format.
-
-    The code for this function is a slightly modified version of a similar
-    function in xanaxbetter so it should generate the same names.
-
-    :param: flac_dir Name of the original FLAC dir. (ONLY name not full path!)
-    :param: output_format Name of the output format as string.
-    """
-    output_format = output_format.NAME.upper()
-    if 'FLAC' in flac_dir.upper():
-        transcode_dir = re.sub(re.compile('FLAC', re.I), output_format, flac_dir)
-    else:
-        transcode_dir = flac_dir + " (" + output_format + ")"
-        if output_format != 'FLAC':
-            transcode_dir = re.sub(re.compile('FLAC', re.I), '', transcode_dir)
-    return transcode_dir
-
 def generate_transcode_name(torrent, output_format):
     """Generate the name for the output directory."""
     t = torrent["torrent"]
