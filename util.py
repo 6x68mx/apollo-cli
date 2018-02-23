@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 def get_transcode_dir(flac_dir, output_format):
     """
@@ -10,7 +11,7 @@ def get_transcode_dir(flac_dir, output_format):
     :param: flac_dir Name of the original FLAC dir. (ONLY name not full path!)
     :param: output_format Name of the output format as string.
     """
-    output_format = output_format.upper()
+    output_format = output_format.NAME.upper()
     if 'FLAC' in flac_dir.upper():
         transcode_dir = re.sub(re.compile('FLAC', re.I), output_format, flac_dir)
     else:
@@ -18,6 +19,31 @@ def get_transcode_dir(flac_dir, output_format):
         if output_format != 'FLAC':
             transcode_dir = re.sub(re.compile('FLAC', re.I), '', transcode_dir)
     return transcode_dir
+
+def generate_transcode_name(torrent, output_format):
+    """Generate the name for the output directory."""
+    t = torrent["torrent"]
+    g = torrent["group"]
+
+    if t["remastered"]:
+        title = (t["remasterTitle"] if t["remasterTitle"] else "remaster")
+        additional_info = "{} - {}".format(title, t["remasterYear"])
+        if t["remasterRecordLabel"]:
+            additional_info += " - {}".format(t["remasterRecordLabel"])
+    else:
+        additional_info = g["year"]
+
+    if len(g["musicInfo"]["artists"]) == 1:
+        artist = g["musicInfo"]["artists"][0]["name"]
+    else:
+        artist = "Various Artists"
+
+    return "{} - {} ({}) - {} [{}]".format(artist,
+                                           g["name"],
+                                           additional_info,
+                                           t["media"],
+                                           output_format.NAME)
+
 
 def create_torrent_file(torrent_path, data_path, tracker, passkey=None, source=None, piece_length=18):
     """
@@ -76,7 +102,7 @@ def check_dir(path, files, names_only=False):
 
     files = dict(files)
     dirs = [path]
-    while len(dirs) > 0:
+    while dirs:
         for x in dirs.pop().iterdir():
             if x.is_dir():
                 dirs.append(x)
