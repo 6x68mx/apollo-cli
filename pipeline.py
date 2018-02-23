@@ -1,6 +1,7 @@
 import subprocess
 import os
 import signal
+import time
 
 class PipelineResult():
     def __init__(self):
@@ -113,6 +114,7 @@ def run_pipelines(pipelines, njobs=None):
                 else:
                     running_new.append(pipeline)
             running = running_new
+            time.sleep(0.1)
     except:
         for pipeline in running:
             pipeline.abort()
