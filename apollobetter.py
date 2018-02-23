@@ -1,4 +1,8 @@
 from apolloapi import ApolloApi, TorrentCache
+from transcode import transcode, TranscodeError
+import formats
+import util
+
 import argparse
 import configparser
 from pathlib import Path
@@ -7,7 +11,6 @@ import shutil
 import re
 import subprocess
 import errno
-import util
 
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
@@ -31,33 +34,30 @@ def main():
     parser.add_argument("-320", "--format-320", action="store_true")
     args = parser.parse_args()
 
-    formats = []
+    target_formats = set()
     if args.format_v2:
-        formats.append("v2")
+        target_formats.add(formats.FormatV2)
     if args.format_v0:
-        formats.append("v0")
+        target_formats.add(formats.FormatV0)
     if args.format_320:
-        formats.append("320")
-    if formats:
-        formats = set(formats)
-    else:
-        formats = {"v2", "v0", "320"}
+        target_formats.add(formats.Format320)
+    if not target_formats:
+        target_formats = formats.FORMATS
+
+    cache_path = config["DEFAULT"]["torrent_cache"]
 
     print("Logging in...")
     username = config["apollo"]["username"]
     password = config["apollo"]["password"]
-    api = ApolloApi()
+    api = ApolloApi(cache_path)
     if not api.login(username, password):
         print("Error: Can't login to apollo.rip")
         return
 
-    cache_path = config["DEFAULT"]["torrent_cache"]
-    tc = TorrentCache(api, cache_path)
-
     print("Fetching potential upload candidates from apollo...")
     candidates = api.get_better_snatched()
 
-    candidates = [c for c in candidates if any(f in c["formats_needed"] for f in formats)]
+    candidates = [c for c in candidates if any(f in c["formats_needed"] for f in target_formats)]
 
     if not candidates:
         print("Their are no candidates for conversion. Nothing to do, exiting...")
@@ -75,74 +75,79 @@ def main():
             if limit > 0 and nuploaded >= limit:
                 break
 
-            print("Processing {} - {} (ID: {}), Needed: {}".format(c["artist"], c["name"], c["torrentid"], ", ".join(c["formats_needed"])))
+            print("Processing {} - {} (ID: {}), Needed: {}".format(
+                c["artist"],
+                c["name"],
+                c["torrentid"],
+                ", ".join(f.NAME for f in c["formats_needed"])))
             
-            torrent_response = tc.get(c["torrentid"])
-            torrent = torrent_response["response"]["torrent"]
+            torrent = api.get_torrent(c["torrentid"])
+            if torrent is None:
+                print("\tError: Requesting torrent info failed.")
+                continue
 
-            needed = formats.intersection(c["formats_needed"])
+            needed = target_formats.intersection(c["formats_needed"])
+            if not needed:
+                continue
+
+            path = util.find_dir(torrent["torrent"]["filePath"], args.search_dir)
+            if path is None:
+                continue
+            print("\tFound {}.".format(path))
+
+            if args.unique_groups:
+                group = api.get_group(torrent["group"]["id"])
+                if any(t["username"] == api.username for t in group["torrents"]):
+                    print("\tYou already own a torrent in this group, skipping... (--unique-groups)")
+                    continue
+
+            # check integrity i.e. if file list in from torrent matches the actuall files on disk
+            if not util.check_dir(path, util.parse_file_list(torrent["torrent"]["fileList"])):
+                print("\tDirectory doesn't match the torrents file list. Skipping...")
+                continue
+
             for output_format in needed:
+                if limit > 0 and nuploaded >= limit:
+                    break
 
-                # find allready encoded data directory
-                """
-                transcode_dir = util.get_transcode_dir(torrent["filePath"], output_format)
-                path = util.find_dir(transcode_dir, args.search_dir)
-                if path is None:
-                    continue
-                print("\tFound {}.".format(path))
-                """
+                print("\tProcessing Format {}:".format(output_format.NAME))
 
-                path = util.find_dir(torrent["filePath"], args.search_dir)
-                if path is None:
-                    continue
-                print("\tFound {}.".format(path))
+                transcode_dir = util.generate_transcode_name(torrent, output_format)
+                dst_path = args.output_dir / transcode_dir
 
-                if args.unique_groups:
-                    group = api.get_group(torrent_response["response"]["group"]["id"])
-                    if any(t["username"] == api.username for t in group["torrents"]):
-                        print("\tYou already own a torrent in this group, skipping... (--unique-groups)")
-                        break # skip all formats of this release
-                
-                # TODO check integrity i.e. if file list in from torrent matches the actuall files on disk
-                if not util.check_dir(path, util.parse_file_list(torrent["fileList"])):
-                    print("\tDirectory doesn't match the torrents file list. Skipping...")
+                print("\t\tTranscoding...")
+                try:
+                    transcode(path, dst_path, output_format)
+                except TranscodeError as e:
+                    print("Error: ", e)
                     continue
-                print("\tdir check OK")
 
                 print("\t\tCreating torrent file...")
                 tfile = Path(tmp.name) / (transcode_dir + ".torrent")
-                util.create_torrent_file(tfile, path, ANNOUNCE_URL, api.passkey, "APL")
+                util.create_torrent_file(tfile, dst_path, ANNOUNCE_URL, api.passkey, "APL")
 
                 print("\t\tUploading torrent...")
-                r = api.add_format(torrent_response["response"], output_format, tfile, DESCRIPTION.format(tid=torrent["id"]))
+                r = api.add_format(torrent, output_format, tfile, DESCRIPTION.format(tid=torrent["torrent"]["id"]))
                 if not r:
                     print("Error on upload. Aborting everything!")
                     # TODO exit
 
-                print("\t\tMoving files...")
+                print("\t\tMoving torrent file...")
                 tfile_new = args.torrent_dir / tfile.name
-                path_new = args.output_dir / path.name
-                if tfile_new.exists() or path_new.exists():
-                    if tfile_new.exists():
-                        print("\t\tError, {} allready exists.".format(tfile_new))
-                    if path_new.exists():
-                        print("\t\tError, {} allready exists.".format(path_new))
+                if tfile_new.exists():
+                    print("\t\tError, {} allready exists.".format(tfile_new))
                     # TODO exit
                 else:
-                    path.rename(path_new)
                     shutil.copyfile(tfile, tfile_new)
 
                 print("\t\tDone.")
 
                 nuploaded += 1
-    except:
-        tc.save(cache_path)
-        raise
+    finally:
+        api.cache.save(cache_path)
 
     print("\nFinished")
     print("Uploaded {} torrents.".format(nuploaded))
-
-    tc.save(cache_path)
 
 if __name__ == "__main__":
     main()
