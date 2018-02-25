@@ -1,5 +1,8 @@
 from pathlib import Path
 import subprocess
+import locale
+import transcode
+import mutagen.flac
 
 def generate_transcode_name(torrent, output_format):
     """Generate the name for the output directory."""
@@ -123,3 +126,65 @@ def find_dir(name, search_dirs):
                 continue
             else:
                 raise
+
+def get_flac_version():
+    if not hasattr(get_flac_version, "version"):
+        cp = subprocess.run(["flac", "--version"],
+                            stdout=subprocess.PIPE,
+                            encoding=locale.getpreferredencoding(False))
+        get_flac_version.version = cp.stdout.strip()
+    return get_flac_version.version
+
+def get_sox_version():
+    if not hasattr(get_sox_version, "version"):
+        cp = subprocess.run(["sox", "--version"],
+                            stdout=subprocess.PIPE,
+                            encoding=locale.getpreferredencoding(False))
+        get_sox_version.version = cp.stdout.split(":")[1].strip()
+    return get_sox_version.version
+
+def get_lame_version():
+    if not hasattr(get_lame_version, "version"):
+        cp = subprocess.run(["lame", "--version"],
+                            stdout=subprocess.PIPE,
+                            encoding=locale.getpreferredencoding(False))
+        get_lame_version.version = cp.stdout.splitlines()[0].strip()
+    return get_lame_version.version
+
+def generate_description(tid, src_path, target_format):
+    """
+    Generate a release description for apollo.rip.
+
+    :param tid: ID of the source torrent.
+    :param src_path: `Path` to a flac file of the source.
+    :param target_format: The format of the transcode. (see `formats`)
+
+    :returns: The description as string.
+    """
+    flac = mutagen.flac.FLAC(src_path)
+    cmds = transcode.generate_transcode_cmds(
+            src_path.name,
+            src_path.with_suffix(target_format.SUFFIX).name,
+            target_format,
+            transcode.compute_resample(flac))
+
+    process = " | ".join(" ".join(cmd) for cmd in cmds)
+    return ("Transcode of [url=https://apollo.rip/torrents.php?torrentid={tid}]https://apollo.rip/torrents.php?torrentid={tid}[/url].\n"
+            "\n"
+            "Process used:\n"
+            "[code]{process}[/code]\n"
+            "\n"
+            "Tool versions:\n"
+            "[code]{flac}\n"
+            "{sox}\n"
+            "{lame}[/code]\n"
+            "\n"
+            "Created with apollo-cli.\n"
+            "This transcode was performed by an autonomous system. Please contact me (the uploader) if it made a mistake."
+           ).format(
+               tid=tid,
+               process=process,
+               flac=get_flac_version(),
+               sox=get_sox_version(),
+               lame=get_lame_version()
+           )

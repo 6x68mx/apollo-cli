@@ -15,10 +15,6 @@ import errno
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
 
-DESCRIPTION = ("Transcode of [url=https://apollo.rip/torrents.php?torrentid={tid}]https://apollo.rip/torrents.php?torrentid={tid}[/url]\n"
-               "\n"
-               "This transcoding was done by an autonomous system.")
-
 def main():
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
@@ -127,7 +123,11 @@ def main():
                 util.create_torrent_file(tfile, dst_path, ANNOUNCE_URL, api.passkey, "APL")
 
                 print("\t\tUploading torrent...")
-                r = api.add_format(torrent, output_format, tfile, DESCRIPTION.format(tid=torrent["torrent"]["id"]))
+                description = util.generate_description(
+                        torrent["torrent"]["id"],
+                        sorted(path.glob("**/*" + formats.FormatFlac.SUFFIX))[0],
+                        output_format)
+                r = api.add_format(torrent, output_format, tfile, description)
                 if not r:
                     print("Error on upload. Aborting everything!")
                     # TODO exit
