@@ -64,28 +64,44 @@ def check_flacs(flacs):
             for flac in flacs):
         return (False, "Inconsistent sample rate or bit depth")
 
-    if bits > 16 or not (rate == 44100 or rate == 48000):
-        resample = compute_downsample_rate(rate)
-        if resample == None:
-            return (False, "Unsupported Rate: {}Hz. Only multiples of 44.1 or 48 kHz are supported".format(rate))
+    try:
+        compute_resample(flacs[0])
+    except TranscodeError as e:
+        return (False, str(e))
 
     if not check_tags(flacs):
         return (False, "One or more required tags are missing.")
 
     return (True, None)
 
-def compute_downsample_rate(rate):
-    if rate % 44100 == 0:
-        return 44100
-    elif rate % 48000 == 0:
-        return 48000
+def compute_resample(flac):
+    """
+    Check if resampling is required and compute the target rate.
+
+    Resampling is required if `flac` has a bit depth > 16 or
+    a sample rate that's not ether 44.1 or 48kHz.
+
+    :param flac: A `mutagen.flac.FLAC` object.
+    :returns: The target rate or `None` in case no resampling is needed.
+    :raises TranscodeError: If `flac` has a sample rate that is not a
+                            multiple of ether 44.1 or 48kHz
+    """
+    bits = flac.info.bits_per_sample
+    rate = flac.info.sample_rate
+    if bits > 16 or not (rate == 44100 or rate == 48000):
+        if rate % 44100 == 0:
+            return 44100
+        elif rate % 48000 == 0:
+            return 48000
+        else:
+            raise TranscodeError("Unsupported Rate: {}Hz. Only multiples of 44.1 or 48 kHz are supported".format(rate))
     else:
         return None
 
 def generate_transcode_cmds(src, dst, target_format, resample=None):
     cmds = []
     if resample is not None:
-        cmds.append(["sox", src, "-G", "-b", "16", "-t", "wav", "-", "rate", "-v", "-L", resample, "dither"])
+        cmds.append(["sox", src, "-G", "-b", "16", "-t", "wav", "-", "rate", "-v", "-L", str(resample), "dither"])
     else:
         cmds.append(["flac", "-dcs", "--", src])
 
@@ -165,8 +181,8 @@ def transcode(src, dst, target_format, njobs=None):
     if not dst.parent.is_dir():
         raise TranscodeError("Parent of destination ({}) does not exist or isn't a directory".format(dst.parent))
 
-    files = list(src.glob("**/*.{}".format(formats.FormatFlac.FILE_EXT)))
-    transcoded_files = [dst / f.relative_to(src).with_suffix("." + target_format.FILE_EXT) for f in files]
+    files = list(src.glob("**/*" + formats.FormatFlac.SUFFIX))
+    transcoded_files = [dst / f.relative_to(src).with_suffix(target_format.SUFFIX) for f in files]
     
     flacs = [mutagen.flac.FLAC(f) for f in files]
 
@@ -174,12 +190,7 @@ def transcode(src, dst, target_format, njobs=None):
     if not success:
         raise TranscodeError(msg)
 
-    bits = flacs[0].info.bits_per_sample
-    rate = flacs[0].info.sample_rate
-    if bits > 16 or not (rate == 44100 or rate == 48000):
-        resample = compute_downsample_rate(rate)
-    else:
-        resample = None
+    resample = compute_resample(flacs[0])
 
     try:
         dst.mkdir()
@@ -192,7 +203,7 @@ def transcode(src, dst, target_format, njobs=None):
             f_src,
             f_dst,
             target_format,
-            str(resample))
+            resample)
         jobs.append(Pipeline(cmds))
 
     try:
