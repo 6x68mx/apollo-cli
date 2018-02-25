@@ -3,6 +3,7 @@ import subprocess
 import locale
 import transcode
 import mutagen.flac
+import html
 
 def generate_transcode_name(torrent, output_format):
     """Generate the name for the output directory."""
@@ -66,6 +67,7 @@ def parse_file_list(data):
     files = {}
     for x in data.split("|||"):
         name, size = x.split("{{{")
+        name = html.unescape(name)
         size = int(size[:-3])
         files[name] = size
     return files
