@@ -91,6 +91,12 @@ def main():
                 continue
             print("\tFound {}.".format(path))
 
+            if (torrent["torrent"]["hasLog"]
+                    and (torrent["torrent"]["logScore"] != 100
+                            or torrent["torrent"]["logChecksum"] != 1)):
+                print("Torrent has a log file but its score is below 100 or it has a invalid checksum. Skipping...")
+                continue
+
             if args.unique_groups:
                 group = api.get_group(torrent["group"]["id"])
                 if any(t["username"] == api.username for t in group["torrents"]):
