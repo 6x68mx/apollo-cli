@@ -199,6 +199,7 @@ def transcode(src, dst, target_format, njobs=None):
 
     jobs = []
     for f_src, f_dst in zip(files, transcoded_files):
+        f_dst.parent.mkdir(parents=True, exist_ok=True)
         cmds = generate_transcode_cmds(
             f_src,
             f_dst,
