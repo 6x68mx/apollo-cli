@@ -5,6 +5,13 @@ import transcode
 import mutagen.flac
 import html
 
+def get_artist_name(torrent):
+    g = torrent["group"]
+    if len(g["musicInfo"]["artists"]) == 1:
+        return g["musicInfo"]["artists"][0]["name"]
+    else:
+        return "Various Artists"
+
 def generate_transcode_name(torrent, output_format):
     """Generate the name for the output directory."""
     t = torrent["torrent"]
@@ -18,10 +25,7 @@ def generate_transcode_name(torrent, output_format):
     else:
         additional_info = g["year"]
 
-    if len(g["musicInfo"]["artists"]) == 1:
-        artist = g["musicInfo"]["artists"][0]["name"]
-    else:
-        artist = "Various Artists"
+    artist = get_artist_name(torrent)
 
     return "{} - {} ({}) - {} [{}]".format(artist,
                                            g["name"],
