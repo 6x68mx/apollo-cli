@@ -21,7 +21,7 @@ class ProcessFailedError(PipelineError):
         self.stderr = stderr
 
     def __str__(self):
-        return "Process '{}' failed with returncode {}".format(" ".join(self.cmd), self.returncode)
+        return "Process '{}' failed with returncode {}".format(" ".join(map(str,self.cmd)), self.returncode)
 
 class Pipeline:
     def __init__(self, cmds):
@@ -106,7 +106,7 @@ def run_pipelines(pipelines, njobs=None):
                                                             r.stdouts,
                                                             r.stderrs):
                             if rc != 0:
-                                raise ProcessFailedError(cmd, rc, stdout, stderr) 
+                                raise ProcessFailedError(cmds, rc, stdout, stderr) 
                     elif pending:
                         new_pipeline = pending.pop()
                         new_pipeline.start()
