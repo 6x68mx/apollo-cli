@@ -144,11 +144,31 @@ class ApolloApi:
 
         files = {"file_input": (tfile.name, tfile.open("rb"), "application/x-bittorrent")}
 
+        # urllib3 (and therefore requests) incorrectly encodes utf-8 file names
+        # The commented-out code is the normal code that we can use once
+        # urllib3 fixes this bug.
+        """
         r = self.session.post(SITE_URL + "/upload.php",
                               params={"groupid": gid},
                               data=data,
                               files=files,
                               allow_redirects=False)
+        """
+        # workaround from
+        # http://linuxonly.nl/docs/68/167_Uploading_files_with_non_ASCII_filenames_using_Python_requests.html
+        def rewrite_request(prepped):
+            filename = tfile.name.encode("utf-8")
+            prepped.body = re.sub(b"filename\*=.*",
+                                  b'filename="' + filename + b'"',
+                                  prepped.body)
+            return prepped
+
+        r = self.session.post(SITE_URL + "/upload.php",
+                              params={"groupid": gid},
+                              data=data,
+                              files=files,
+                              allow_redirects=False,
+                              auth=rewrite_request)
 
         if r.status_code == 302:
             return True
