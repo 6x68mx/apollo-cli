@@ -15,6 +15,9 @@ USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_3)"
               "AppleWebKit/535.11 (KHTML, like Gecko) Chrome/17.0.963.79"
               "Safari/535.11")
 
+class ApiError(Exception):
+    pass
+
 class ApolloApi:
     def __init__(self, cache_path=None):
         self.session = requests.Session()
@@ -25,6 +28,11 @@ class ApolloApi:
         self.cache = TorrentCache(self, cache_path)
 
     def login(self, username, password):
+        """
+        Authenticate with the apollo server.
+
+        :raises ApiError: If the login failed.
+        """
         r = self.session.post(SITE_URL + "/login.php",
                               data={"username": username,
                                     "password": password,
@@ -38,9 +46,9 @@ class ApolloApi:
                 self.authkey = r["authkey"]
                 self.passkey = r["passkey"]
                 self.authenticated = True
-                return True
+                return
 
-        return False
+        raise ApiError("Login failed.")
 
     def _api_request(self, action, **kwargs):
         while time.time() - self.last_request < self.rate_limit:
@@ -54,8 +62,13 @@ class ApolloApi:
             r = r.json()
             if r.get("status", "") == "success":
                 return unescape(r["response"])
+            elif r.get("status", "") == "failure" and "error" in r:
+                raise ApiError("API request failed. Error: '{}'".format(r["error"]))
+            else:
+                raise ApiError("API request failed. ({})".format(str(r)))
+        else:
+            raise ApiError("API request failed with status code {}".format(r.status_code))
             
-        return None
 
     def get_better_snatched(self):
         if not self.authenticated:
@@ -67,7 +80,7 @@ class ApolloApi:
         r = self.session.get(SITE_URL + "/better.php?method=snatch")
 
         if r.status_code != 200:
-            return
+            raise ApiError("Couldn't fetch better snatched. (Statuscode: {})".format(r.status_code))
 
         soup = BeautifulSoup(r.content, "lxml")
 
@@ -170,10 +183,8 @@ class ApolloApi:
                               allow_redirects=False,
                               auth=rewrite_request)
 
-        if r.status_code == 302:
-            return True
-        else:
-            return False
+        if r.status_code != 302:
+            raise ApiError("Couldn't add format. (Status code: {})".format(r.status_code))
 
 def unescape(obj):
     """
@@ -189,6 +200,9 @@ def unescape(obj):
         return obj
 
 class TorrentCache:
+    """
+    Caches access to the torrent API endpoint.
+    """
     def __init__(self, api, path=None):
         self.api = api
         self.clear()

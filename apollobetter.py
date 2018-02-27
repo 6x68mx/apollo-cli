@@ -1,4 +1,4 @@
-from apolloapi import ApolloApi, TorrentCache
+from apolloapi import ApolloApi, ApiError
 from transcode import transcode, TranscodeError
 import formats
 import util
@@ -16,19 +16,24 @@ import os
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
 
+class ApolloBetterError(Exception):
+    pass
+
 class ApolloBetter:
-    def __init__(self, username, password, search_dirs, output_dir, torrent_dir, unique_groups, cache_path=None):
+    def __init__(self, username, password, search_dirs, output_dir,
+            torrent_dir, unique_groups, cache_path=None,
+            continue_on_error=False):
         self.tmp = tempfile.TemporaryDirectory()
         self.nuploaded = 0
         self.search_dirs = search_dirs
         self.output_dir = output_dir
         self.torrent_dir = torrent_dir
         self.unique_groups = unique_groups
+        self.continue_on_error = continue_on_error
         self.api = ApolloApi(cache_path)
 
         print("Logging in...")
-        if not self.api.login(username, password):
-            print("Error: Can't login to apollo.rip")
+        self.api.login(username, password)
 
     def run(self, tids=None, limit=None, allowed_formats=formats.FORMATS):
         """
@@ -79,10 +84,15 @@ class ApolloBetter:
 
         :returns: The number of torrents that where actually uploaded.
         """
-        torrent = self.api.get_torrent(tid)
-        if torrent is None:
-            print("\tError: Requesting torrent info for {} failed.".format(tid))
-            return 0
+        try:
+            torrent = self.api.get_torrent(tid)
+        except ApiError as e:
+            msg = "\tError: Requesting torrent info for {} failed. ({})".format(tid, e)
+            if self.continue_on_error:
+                print(msg)
+                return 0
+            else:
+                raise ApolloBetterError(msg)
 
         print("Processing {} - {} (ID: {}), Needed: {}".format(
             util.get_artist_name(torrent),
@@ -107,9 +117,9 @@ class ApolloBetter:
                 print("\tYou already own a torrent in this group, skipping... (--unique-groups)")
                 return 0
 
-        # check integrity i.e. if file list in from torrent matches the actuall files on disk
-        if not util.check_dir(path, util.parse_file_list(torrent["torrent"]["fileList"])):
-            print("\tDirectory doesn't match the torrents file list. Skipping...")
+        msg = util.check_source_release(path, torrent)
+        if msg is not None:
+            print("\t{} Skipping release...".format(msg))
             return 0
 
         nuploaded = 0
@@ -140,30 +150,42 @@ class ApolloBetter:
 
         tfile_new = self.torrent_dir / tfile.name
         if tfile_new.exists():
-            print("\t\tError, {} allready exists.".format(tfile_new))
+            msg = "\t\tError, {} allready exists.".format(tfile_new)
+            if self.continue_on_error:
+                print(msg)
+                return False
+            else:
+                raise ApolloBetterError(msg)
 
         print("\t\tTranscoding...")
         try:
             transcode(path, dst_path, oformat)
         except TranscodeError as e:
-            print("\t\tError: ", e)
-            return False # TODO we probably want to throw an exception here and abort alltogether
+            if self.continue_on_error:
+                print("\t\tError: ", e)
+                return False
+            else:
+                raise e
 
         print("\t\tCreating torrent file...")
-        util.create_torrent_file(tfile, dst_path, ANNOUNCE_URL, self.api.passkey, "APL")
+        util.create_torrent_file(tfile, dst_path, ANNOUNCE_URL,
+                                 self.api.passkey, "APL", overwrite=True)
 
         print("\t\tUploading torrent...")
         description = util.generate_description(
                 torrent["torrent"]["id"],
                 sorted(path.glob("**/*" + formats.FormatFlac.SUFFIX))[0],
                 oformat)
-        r = self.api.add_format(torrent, oformat, tfile, description)
-        if not r:
-            print("Error on upload. Aborting everything!")
+        try:
+            self.api.add_format(torrent, oformat, tfile, description)
+        except ApiError as e:
             shutil.rmtree(dst_path)
             os.remove(tfile)
-            return False
-            # TODO exit
+            if self.continue_on_error:
+                print("Error on upload:{}")
+                return False
+            else:
+                raise e
 
         print("\t\tMoving torrent file...")
         shutil.copyfile(tfile, tfile_new)
@@ -181,6 +203,7 @@ def main():
     parser.add_argument("--torrent-dir", help="Where to put the new *.torrent files", type=Path, required=True)
     parser.add_argument("-l", "--limit", type=int, help="Maximum number of torrents to upload")
     parser.add_argument("-u", "--unique-groups", action="store_true", help="Upload only into groups you do not yet have a single torrent in.")
+    parser.add_argument("--continue-on-error", action="store_true", help="Continue with the next torrent instead of aborting on recoverable errors.")
     parser.add_argument("-v2", "--format-v2", action="store_true")
     parser.add_argument("-v0", "--format-v0", action="store_true")
     parser.add_argument("-320", "--format-320", action="store_true")
@@ -203,7 +226,8 @@ def main():
         args.output_dir,
         args.torrent_dir,
         args.unique_groups,
-        config["DEFAULT"]["torrent_cache"])
+        config["DEFAULT"]["torrent_cache"],
+        args.continue_on_error)
 
     nuploaded = better.run(allowed_formats=allowed_formats, limit=args.limit)
 

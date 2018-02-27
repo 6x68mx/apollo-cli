@@ -50,29 +50,28 @@ def check_flacs(flacs):
 
     :param flacs: A `list` of `mutagen.flac.FLAC` objects.
 
-    :returns: ``(sucess, msg)`` where ``sucess`` states if the files
-              are suitable and ``msg`` contains a description of the
-              problem if not.
+    :returns: A string containing a description of the problem if there was
+              one, or `None` if no problems were detected.
     """
     if any(flac.info.channels > 2 for flac in flacs):
-        return (False, "More than 2 channels are not supported.")
+        return "More than 2 channels are not supported."
 
     bits = flacs[0].info.bits_per_sample
     rate = flacs[0].info.sample_rate
     if any((flac.info.bits_per_sample != bits
             or flac.info.sample_rate != rate)
             for flac in flacs):
-        return (False, "Inconsistent sample rate or bit depth")
+        return "Inconsistent sample rate or bit depth"
 
     try:
         compute_resample(flacs[0])
     except TranscodeError as e:
-        return (False, str(e))
+        return str(e)
 
     if not check_tags(flacs):
-        return (False, "One or more required tags are missing.")
+        return "One or more required tags are missing."
 
-    return (True, None)
+    return None
 
 def compute_resample(flac):
     """
@@ -186,8 +185,8 @@ def transcode(src, dst, target_format, njobs=None):
     
     flacs = [mutagen.flac.FLAC(f) for f in files]
 
-    success, msg = check_flacs(flacs)
-    if not success:
+    msg = check_flacs(flacs)
+    if msg is not None:
         raise TranscodeError(msg)
 
     resample = compute_resample(flacs[0])

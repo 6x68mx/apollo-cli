@@ -1,9 +1,13 @@
+import transcode
+import formats
+
 from pathlib import Path
 import subprocess
 import locale
-import transcode
-import mutagen.flac
 import re
+import os
+import mutagen.flac
+from mutagen import MutagenError
 
 def get_artist_name(torrent):
     g = torrent["group"]
@@ -35,18 +39,32 @@ def generate_transcode_name(torrent, output_format):
     # replace characters which aren't allowed in (windows) paths with "_"
     return re.sub(r'[\\/:"*?<>|]+', "_", name)
 
-def create_torrent_file(torrent_path, data_path, tracker, passkey=None, source=None, piece_length=18):
+def create_torrent_file(torrent_path, data_path, tracker, passkey=None,
+        source=None, piece_length=18, overwrite=False):
     """
     Creates a torrentfile using ``mktorrent``
 
-    :param: torrent_path Full path of the torrent file that will be created.
-    :param: data_path Path to the file/directory from which to create the torrent.
-    :param: tracker URL of the tracker, if `passkey` is specified this should contain "{}" which will be replaced with the passkey.
-    :param: passkey A passkey to insert into the tracker URL. (Needed for private trackers)
-    :param: piece_length The piece length in 2^n bytes.
+    :param torrent_path: Full path of the torrent file that will be created.
+    :param data_path: Path to the file/directory from which to create the
+                      torrent.
+    :param tracker: URL of the tracker, if `passkey` is specified this should
+                    contain "{}" which will be replaced with the passkey.
+    :param passkey: A passkey to insert into the tracker URL.
+                    (Needed for private trackers)
+    :param piece_length: The piece length in 2^n bytes.
+    :param overwrite: If this is `True` and `torrent_path` exists it will be
+                      replaced.
+
+    :raises OSError:
     """
-    if torrent_path.exists() or not data_path.exists():
-        return False
+    if torrent_path.exists():
+        if overwrite:
+            os.remove(torrent_path)
+        else:
+            raise FileExistsError("{} allready exists.".format(torrent_path))
+
+    if not data_path.exists():
+        raise FileNotFoundError("{} not found.".format(data_path))
 
     if passkey is not None:
         url = tracker.format(passkey)
@@ -57,7 +75,6 @@ def create_torrent_file(torrent_path, data_path, tracker, passkey=None, source=N
     if source:
         command.extend(["-s", source])
     command.append(data_path)
-    #command = ["mktorrent", "-p", "-l", str(piece_length), "-a", url, "-s", "APL", "-o", torrent_path, data_path]
     subprocess.check_output(command, stderr=subprocess.STDOUT)
 
 def parse_file_list(data):
@@ -75,6 +92,30 @@ def parse_file_list(data):
         size = int(size[:-3])
         files[name] = size
     return files
+
+def check_source_release(path, torrent):
+    """
+    Check if there are any problems with a flac release.
+
+    Internally calls `check_dir` and `transcode.check_flacs`.
+
+    :param path: Path to the directory containing the release.
+    :param torrent: A torrent `dict`.
+
+    :returns: A string containing a description of the problem if there was
+              one, or `None` if no problems were detected.
+    """
+    fl = parse_file_list(torrent["torrent"]["fileList"])
+    if not check_dir(path, fl):
+        return (False, "Directory doesn't match the torrents file list.")
+
+    files = list(path.glob("**/*" + formats.FormatFlac.SUFFIX))
+    try:
+        flacs = [mutagen.flac.FLAC(f) for f in files]
+    except MutagenError as e:
+        return (False, str(e))
+
+    return transcode.check_flacs(flacs)
 
 def check_dir(path, files, names_only=False):
     """
