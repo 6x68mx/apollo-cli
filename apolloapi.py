@@ -174,6 +174,7 @@ class TorrentCache:
         self.clear()
         if path:
             self.load(path)
+            self.path = path
         
     def clear(self):
         self.torrents = {}
@@ -185,7 +186,9 @@ class TorrentCache:
         except FileNotFoundError:
             pass
 
-    def save(self, path):
+    def save(self, path=None):
+        if path is None and self.path is not None:
+            path = self.path
         with open(path, "w") as f:
             json.dump(self.torrents, f)
 
