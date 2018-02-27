@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import re
 import time
 import json
+import html
 
 SITE_URL = "https://apollo.rip"
 
@@ -52,7 +53,7 @@ class ApolloApi:
         if r.status_code == 200:
             r = r.json()
             if r.get("status", "") == "success":
-                return r["response"]
+                return unescape(r["response"])
             
         return None
 
@@ -153,6 +154,19 @@ class ApolloApi:
             return True
         else:
             return False
+
+def unescape(obj):
+    """
+    Unescape all html entities in all strings of a json data structure.
+    """
+    if isinstance(obj, str):
+        return html.unescape(obj)
+    elif isinstance(obj, list):
+        return [unescape(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {unescape(k): unescape(v) for k, v in obj.items()}
+    else:
+        return obj
 
 class TorrentCache:
     def __init__(self, api, path=None):
