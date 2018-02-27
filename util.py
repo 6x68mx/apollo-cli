@@ -3,6 +3,7 @@ import subprocess
 import locale
 import transcode
 import mutagen.flac
+import re
 
 def get_artist_name(torrent):
     g = torrent["group"]
@@ -26,12 +27,13 @@ def generate_transcode_name(torrent, output_format):
 
     artist = get_artist_name(torrent)
 
-    return "{} - {} ({}) - {} [{}]".format(artist,
-                                           g["name"],
-                                           additional_info,
-                                           t["media"],
-                                           output_format.NAME)
-
+    name =  "{} - {} ({}) - {} [{}]".format(artist,
+                                            g["name"],
+                                            additional_info,
+                                            t["media"],
+                                            output_format.NAME)
+    # replace characters which aren't allowed in (windows) paths with "_"
+    return re.sub(r'[\\/:"*?<>|]+', "_", name)
 
 def create_torrent_file(torrent_path, data_path, tracker, passkey=None, source=None, piece_length=18):
     """
