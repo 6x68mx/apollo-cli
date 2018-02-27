@@ -11,6 +11,7 @@ import shutil
 import re
 import subprocess
 import errno
+import os
 
 CONFIG_PATH = "apollobetter.conf"
 ANNOUNCE_URL = "https://mars.apollo.rip/{}/announce"
@@ -54,14 +55,18 @@ class ApolloBetter:
 
         print()
 
-        nuploaded = 0
-        for c in candidates:
-            if limit is not None and nuploaded >= limit:
-                break
-            nuploaded += self.process_release(
-                    c["torrentid"],
-                    allowed_formats.intersection(c["formats_needed"]),
-                    limit - nuploaded if limit is not None else None)
+        try:
+            nuploaded = 0
+            for c in candidates:
+                if limit is not None and nuploaded >= limit:
+                    break
+                nuploaded += self.process_release(
+                        c["torrentid"],
+                        allowed_formats.intersection(c["formats_needed"]),
+                        limit - nuploaded if limit is not None else None)
+        finally:
+            self.api.cache.save()
+
         return nuploaded
 
     def process_release(self, tid, oformats, limit=None):
@@ -155,6 +160,8 @@ class ApolloBetter:
         r = self.api.add_format(torrent, oformat, tfile, description)
         if not r:
             print("Error on upload. Aborting everything!")
+            shutil.rmtree(dst_path)
+            os.remove(tfile)
             return False
             # TODO exit
 
