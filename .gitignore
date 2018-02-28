@@ -6,3 +6,7 @@ venv
 #vim
 *.swp
 tags
+
+# other
+cache.json
+apollobetter.conf
