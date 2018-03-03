@@ -59,9 +59,9 @@ class FormatV2:
     def encode_cmd(dst):
         return lame_cmd(dst, ["-V", "2", "--vbr-new", "--ignore-tag-errors"])
 
-FORMATS = (
+FORMATS = {
         FormatFlac,
         Format320,
         FormatV0,
         FormatV2
-)
+}
