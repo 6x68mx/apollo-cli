@@ -25,6 +25,7 @@ You also need to have the following tools installed on you system and available 
 * flac (https://xiph.org/flac/)
 * sox (http://sox.sourceforge.net/)
 * lame (http://lame.sourceforge.net/)
+* mktorrent (https://github.com/Rudde/mktorrent) version 1.1 or newer
 
 These tools should be available in the package repositories of all major Linux Distributions so installation should be trivial.
 
